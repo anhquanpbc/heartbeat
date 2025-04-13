@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Beating Heart</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        /* Heart rate control styles */
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px 20px;
+            border-radius: 20px;
+        }
+
+        .btn {
+            background-color: #ff0000;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            font-size: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+            transition: all 0.2s ease;
+        }
+
+        .btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 0 15px rgba(255, 0, 0, 0.8);
+        }
+
+        .btn:active {
+            transform: scale(0.95);
+        }
+
+        .heart-rate-display {
+            color: #ff0000;
+            font-size: 18px;
+            font-family: Arial, sans-serif;
+            text-shadow: 0 0 5px rgba(255, 0, 0, 0.7);
+        }
+
+        /* Add subtle glow to the scene */
+        canvas {
+            filter: blur(0px) brightness(1.05);
+        }
+
+        /* Display a message about clicking the heart */
+        .click-info {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 100, 100, 0.7);
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            text-align: center;
+            pointer-events: none;
+            text-shadow: 0 0 5px rgba(255, 0, 0, 0.5);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 0.7;
+            }
+
+            50% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: 0.7;
+            }
+        }
+
+        /* Checkbox styling */
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            margin-left: 15px;
+            cursor: pointer;
+        }
+
+        .custom-checkbox {
+            width: 18px;
+            height: 18px;
+            border: 2px solid #ff0000;
+            border-radius: 4px;
+            margin-right: 8px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.2s ease;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .custom-checkbox.checked {
+            background-color: #ff0000;
+        }
+
+        .custom-checkbox.checked::after {
+            content: '✓';
+            color: white;
+            font-size: 14px;
+        }
+
+        .checkbox-label {
+            color: #ff0000;
+            font-size: 14px;
+            font-family: Arial, sans-serif;
+            text-shadow: 0 0 5px rgba(255, 0, 0, 0.5);
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Add info message about clicking the heart -->
+    <div class="click-info">Click on the heart to see it explode!</div>
+
+    <!-- Heart rate control buttons -->
+    <div class="controls">
+        <button id="decrease-rate" class="btn">-</button>
+        <div class="heart-rate-display">
+            Heart Rate: <span id="bpm">80</span> BPM
+        </div>
+        <button id="increase-rate" class="btn">+</button>
+
+        <!-- Add random heart rate checkbox -->
+        <div class="checkbox-container" id="random-rate-container">
+            <div class="custom-checkbox" id="random-rate-checkbox"></div>
+            <span class="checkbox-label">Random Rate</span>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Initialize Three.js
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Add stronger ambient lighting for better overall brightness
+        const ambientLight = new THREE.AmbientLight(0xff5555, 0.35);
+        scene.add(ambientLight);
+
+        // Add a point light to enhance the glow effect
+        const pointLight = new THREE.PointLight(0xff3333, 0.5);
+        pointLight.position.set(0, 0, 40);
+        scene.add(pointLight);
+
+        // Position camera farther back to accommodate larger heart
+        camera.position.z = 85;
+
+        // Mouse position
+        const mouse = new THREE.Vector2();
+        const mousePosition3D = new THREE.Vector3();
+        let mouseActive = false;
+
+        // Add raycaster for click detection
+        const raycaster = new THREE.Raycaster();
+
+        // Explosion effect variables
+        let exploding = false;
+        let explosionTime = 0;
+        let explosionDuration = 2.5; // seconds
+
+        // Heart rate variables
+        let heartRateBase = 4; // Default heart rate frequency
+        let heartRateBPM = 80; // BPM display value
+        let randomRateEnabled = false;
+        let nextRandomRateChange = 0;
+
+        // Initialize DOM elements for heart rate control
+        const bpmDisplay = document.getElementById('bpm');
+        const increaseBtn = document.getElementById('increase-rate');
+        const decreaseBtn = document.getElementById('decrease-rate');
+        const randomRateCheckbox = document.getElementById('random-rate-checkbox');
+        const randomRateContainer = document.getElementById('random-rate-container');
+
+        // Heart rate control functions
+        function increaseHeartRate() {
+            if (heartRateBase < 10) {
+                heartRateBase += 0.5;
+                heartRateBPM = Math.round(heartRateBase * 20); // Convert to BPM (approximate)
+                bpmDisplay.textContent = heartRateBPM;
+            }
+        }
+
+        function decreaseHeartRate() {
+            if (heartRateBase > 1) {
+                heartRateBase -= 0.5;
+                heartRateBPM = Math.round(heartRateBase * 20); // Convert to BPM (approximate)
+                bpmDisplay.textContent = heartRateBPM;
+            }
+        }
+
+        // Random heart rate toggle
+        function toggleRandomRate() {
+            randomRateEnabled = !randomRateEnabled;
+            if (randomRateEnabled) {
+                randomRateCheckbox.classList.add('checked');
+                // Disable manual controls when random is enabled
+                increaseBtn.disabled = true;
+                decreaseBtn.disabled = true;
+                increaseBtn.style.opacity = '0.5';
+                decreaseBtn.style.opacity = '0.5';
+            } else {
+                randomRateCheckbox.classList.remove('checked');
+                // Re-enable manual controls
+                increaseBtn.disabled = false;
+                decreaseBtn.disabled = false;
+                increaseBtn.style.opacity = '1';
+                decreaseBtn.style.opacity = '1';
+            }
+        }
+
+        // Generate a random heart rate within reasonable bounds
+        function setRandomHeartRate() {
+            const minRate = 1; // 20 BPM
+            const maxRate = 10; // 200 BPM
+            heartRateBase = minRate + Math.random() * (maxRate - minRate);
+            heartRateBPM = Math.round(heartRateBase * 20);
+            bpmDisplay.textContent = heartRateBPM;
+        }
+
+        // Add event listeners to buttons
+        increaseBtn.addEventListener('click', increaseHeartRate);
+        decreaseBtn.addEventListener('click', decreaseHeartRate);
+        randomRateContainer.addEventListener('click', toggleRandomRate);
+
+        // EKG/Heart monitor variables
+        const ekg = {
+            points: [],
+            line: null,
+            width: 100,
+            height: 10,
+            speed: 0.5,
+            position: { x: 0, y: -40, z: 0 },
+            currentX: 0
+        };
+
+        // Create EKG line
+        function createEKG() {
+            // Initialize points for the EKG line
+            const numPoints = 200;
+            const material = new THREE.LineBasicMaterial({
+                color: 0xff0000,
+                linewidth: 2
+            });
+            const geometry = new THREE.BufferGeometry();
+
+            // Create initial flat line
+            const positions = new Float32Array(numPoints * 3);
+            for (let i = 0; i < numPoints; i++) {
+                positions[i * 3] = (i / numPoints) * ekg.width - ekg.width / 2; // X
+                positions[i * 3 + 1] = ekg.position.y; // Y
+                positions[i * 3 + 2] = ekg.position.z; // Z
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            ekg.line = new THREE.Line(geometry, material);
+            ekg.points = positions;
+            scene.add(ekg.line);
+        }
+
+        // Generate classic EKG pattern
+        function generateEKGPattern(x, beatPhase) {
+            // Normal flat line with small noise
+            let y = Math.random() * 0.1;
+
+            // Generate EKG spike based on heart beat phase
+            // QRS complex simulation (the main spike in an EKG)
+            if (beatPhase > 0.9 || beatPhase < 0.1) {
+                const phaseInSpike = (beatPhase > 0.9) ? (beatPhase - 0.9) * 10 : beatPhase * 10;
+
+                // Simple QRS complex approximation
+                if (phaseInSpike < 0.2) {
+                    // Q wave (small dip)
+                    y = -2 * phaseInSpike;
+                } else if (phaseInSpike < 0.4) {
+                    // R wave (large spike)
+                    y = 20 * (phaseInSpike - 0.2);
+                } else if (phaseInSpike < 0.5) {
+                    // S wave (large dip after spike)
+                    y = 4 - 15 * (phaseInSpike - 0.4);
+                } else if (phaseInSpike < 0.7) {
+                    // Return to baseline
+                    y = -3 + 4 * (phaseInSpike - 0.5);
+                } else {
+                    // T wave (small bump after QRS)
+                    const tPhase = (phaseInSpike - 0.7) * 3.33;
+                    y = Math.sin(tPhase * Math.PI) * 1.5;
+                }
+            }
+
+            return y;
+        }
+
+        // Update EKG line
+        function updateEKG(beatPhase) {
+            // Move EKG to the left
+            ekg.currentX += ekg.speed;
+
+            // Update each point in the line
+            const positions = ekg.points;
+            const numPoints = positions.length / 3;
+
+            // Shift all points to the left
+            for (let i = 0; i < numPoints - 1; i++) {
+                positions[i * 3 + 1] = positions[(i + 1) * 3 + 1];
+            }
+
+            // Add new point at the end
+            const lastIdx = (numPoints - 1) * 3;
+            positions[lastIdx + 1] = ekg.position.y + generateEKGPattern(ekg.currentX, beatPhase);
+
+            // Update geometry
+            ekg.line.geometry.attributes.position.needsUpdate = true;
+        }
+
+        // Particles
+        const heartParticles = new THREE.Group();
+        const particles = [];
+
+        // Particle trails for more beauty
+        const particleTrails = [];
+        const maxTrailLength = 5;
+
+        // Generate heart shape
+        function createHeart() {
+            // Reduced particle count for less density
+            const particleCount = 2200;
+            // Varied particle sizes for more organic look
+            const particleSizeBase = 0.6;
+
+            for (let i = 0; i < particleCount; i++) {
+                // Parametric heart equation
+                const t = Math.random() * 2 * Math.PI;
+                const u = Math.random() * Math.PI;
+
+                // Heart parametric equation with improved smoothness
+                const sizeFactor = 1.2;
+                const x = 16 * Math.pow(Math.sin(u), 3) * Math.cos(t) * sizeFactor;
+                const y = (13 * Math.cos(u) - 5 * Math.cos(2 * u) - 2 * Math.cos(3 * u) - Math.cos(4 * u)) * sizeFactor;
+                const z = 16 * Math.pow(Math.sin(u), 3) * Math.sin(t) * sizeFactor;
+
+                // Vary particle size based on position for more natural look
+                const distanceFromCenter = Math.sqrt(x * x + y * y + z * z);
+                const maxDistance = 20;
+                const colorIntensity = 1 - Math.min(distanceFromCenter / maxDistance, 1);
+
+                // Varied particle size (smaller on edges)
+                const particleSize = particleSizeBase * (0.7 + 0.3 * colorIntensity);
+
+                // Changed to SphereGeometry for round particles
+                const particleGeometry = new THREE.SphereGeometry(particleSize, 8, 8);
+
+                // Enhanced color scheme with more vibrant gradient
+                const color = new THREE.Color();
+
+                // Create brighter gradient from vivid red in center to bright pinkish-red at edges
+                const hue = 0.98 + (1 - colorIntensity) * 0.07; // Slight hue variation towards redder
+                const saturation = 0.95 + (colorIntensity * 0.05); // Higher saturation
+                const lightness = 0.4 + 0.55 * (1 - colorIntensity); // Increased base lightness
+
+                color.setHSL(hue, saturation, lightness);
+
+                // Create material with enhanced emissive properties for stronger glow effect
+                const particleMaterial = new THREE.MeshPhongMaterial({
+                    color: color,
+                    emissive: color.clone().multiplyScalar(0.5), // Increased emissive factor
+                    emissiveIntensity: 0.7, // Increased emissive intensity
+                    specular: 0xffffff,
+                    shininess: 70 // Increased shininess for more highlights
+                });
+
+                // Create particle
+                const particle = new THREE.Mesh(particleGeometry, particleMaterial);
+                particle.position.set(x, y, z);
+
+                // Store original position
+                particle.userData.originalX = x;
+                particle.userData.originalY = y;
+                particle.userData.originalZ = z;
+
+                // Add random movement offset with improved flow
+                particle.userData.randX = Math.random() * 0.02 - 0.01;
+                particle.userData.randY = Math.random() * 0.02 - 0.01;
+                particle.userData.randZ = Math.random() * 0.02 - 0.01;
+
+                // Randomize movement phase for more natural flow
+                particle.userData.phaseOffset = Math.random() * Math.PI * 2;
+
+                // Add explosion vectors with better dispersion
+                particle.userData.explosionX = (Math.random() - 0.5) * 4;
+                particle.userData.explosionY = (Math.random() - 0.5) * 4;
+                particle.userData.explosionZ = (Math.random() - 0.5) * 4;
+
+                // Initialize empty trail array for this particle
+                particleTrails.push([]);
+
+                heartParticles.add(particle);
+                particles.push(particle);
+            }
+
+            scene.add(heartParticles);
+        }
+
+        // Create the heart
+        createHeart();
+        createEKG();
+
+        // Handle mouse movement
+        function onMouseMove(event) {
+            mouseActive = true;
+
+            // Update mouse position in normalized device coordinates
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // Improved mouse position projection to 3D space
+            const vector = new THREE.Vector3(mouse.x, mouse.y, 0.5);
+            vector.unproject(camera);
+            const dir = vector.sub(camera.position).normalize();
+            const distance = -camera.position.z / dir.z;
+            mousePosition3D.copy(camera.position).add(dir.multiplyScalar(distance));
+        }
+
+        function onMouseLeave() {
+            mouseActive = false;
+        }
+
+        // Handle mouse click - trigger explosion
+        function onMouseClick(event) {
+            // Only respond to left mouse button
+            if (event.button !== 0) return;
+
+            // Update the mouse position
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // Cast a ray through the mouse position
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(particles);
+
+            // If the ray intersects any heart particle, trigger explosion
+            if (intersects.length > 0 && !exploding) {
+                exploding = true;
+                explosionTime = 0;
+            }
+        }
+
+        document.addEventListener('mousemove', onMouseMove, false);
+        document.addEventListener('mouseleave', onMouseLeave, false);
+        document.addEventListener('mousedown', onMouseClick, false);
+
+        // Animation
+        let time = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            time += 0.01;
+
+            // Handle random heart rate changes
+            if (randomRateEnabled) {
+                nextRandomRateChange -= 0.01;
+                if (nextRandomRateChange <= 0) {
+                    setRandomHeartRate();
+                    // Set next change time between 2-5 seconds
+                    nextRandomRateChange = 2 + Math.random() * 3;
+                }
+            }
+
+            // Use heartRateBase for heart beat frequency
+            const heartbeatFrequency = heartRateBase;
+            const heartbeatPhase = (Math.sin(time * heartbeatFrequency) + 1) / 2; // Normalized to 0-1
+
+            // Heartbeat effect - more dynamic with variable strength
+            const heartbeatStrength = exploding ? 0.05 : 0.2 + Math.sin(time * 0.5) * 0.03; // Subtle variation
+            const heartbeat = Math.sin(time * heartbeatFrequency) * heartbeatStrength + 1;
+
+            // Update EKG based on heartbeat
+            updateEKG(heartbeatPhase);
+
+            // Update explosion time if exploding - THIS WAS MISSING CAUSING THE EXPLOSION TO NOT WORK
+            if (exploding) {
+                explosionTime += 0.016; // Approximately 60fps
+
+                // Check if explosion is complete
+                if (explosionTime >= explosionDuration) {
+                    exploding = false;
+                }
+            }
+
+            // Update particles
+            particles.forEach((particle, index) => {
+                const origX = particle.userData.originalX;
+                const origY = particle.userData.originalY;
+                const origZ = particle.userData.originalZ;
+                const phaseOffset = particle.userData.phaseOffset;
+
+                // Calculate target position based on explosion state
+                let targetX, targetY, targetZ;
+                let animationSpeed;
+
+                if (exploding) {
+                    // Explosion progress from 0 to 1 and back to 0 (improved curve)
+                    const progress = explosionTime / explosionDuration;
+
+                    // During first half, explode outward with better curve
+                    if (progress < 0.5) {
+                        const explodeFactor = Math.pow(progress * 2, 1.5); // Improved acceleration
+                        targetX = origX * heartbeat + particle.userData.explosionX * 100 * explodeFactor;
+                        targetY = origY * heartbeat + particle.userData.explosionY * 100 * explodeFactor;
+                        targetZ = origZ * heartbeat + particle.userData.explosionZ * 100 * explodeFactor;
+                        animationSpeed = 0.25; // Faster explosion
+                    }
+                    // During second half, reform heart with natural slowdown
+                    else {
+                        const reformFactor = Math.pow((progress - 0.5) * 2, 0.7); // Improved deceleration
+                        targetX = origX * heartbeat + particle.userData.explosionX * 100 * (1 - reformFactor);
+                        targetY = origY * heartbeat + particle.userData.explosionY * 100 * (1 - reformFactor);
+                        targetZ = origZ * heartbeat + particle.userData.explosionZ * 100 * (1 - reformFactor);
+                        animationSpeed = 0.05 + 0.03 * (1 - reformFactor); // Variable speed
+                    }
+                } else {
+                    // Enhanced normal heartbeat animation with more natural movement
+                    const heartbeatPhaseWithOffset = (time * heartbeatFrequency + phaseOffset) % (2 * Math.PI);
+                    const individualHeartbeat = Math.sin(heartbeatPhaseWithOffset) * heartbeatStrength + 1;
+
+                    targetX = origX * individualHeartbeat;
+                    targetY = origY * individualHeartbeat;
+                    targetZ = origZ * individualHeartbeat;
+                    animationSpeed = 0.07;
+                }
+
+                // Add randomness for more natural movement
+                const randX = particle.userData.randX * Math.sin(time * 3 + phaseOffset);
+                const randY = particle.userData.randY * Math.sin(time * 2 + phaseOffset * 1.5);
+                const randZ = particle.userData.randZ * Math.sin(time * 4 + phaseOffset * 0.5);
+
+                targetX += randX;
+                targetY += randY;
+                targetZ += randZ;
+
+                // Improved mouse repulsion effect
+                let mouseEffect = { x: 0, y: 0, z: 0 };
+
+                if (mouseActive && !exploding) {
+                    // Calculate distance to mouse in 3D space
+                    const distToMouse = particle.position.distanceTo(mousePosition3D);
+                    // Adjust repulsion range and strength
+                    const repelRange = 55;
+
+                    if (distToMouse < repelRange) {
+                        // Enhanced repulsion strength with smoother falloff
+                        const repelStrength = 8 * (1 - distToMouse / repelRange);
+
+                        // Direction away from mouse
+                        const dirX = particle.position.x - mousePosition3D.x;
+                        const dirY = particle.position.y - mousePosition3D.y;
+                        const dirZ = particle.position.z - mousePosition3D.z;
+
+                        // Normalize direction
+                        const length = Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ) || 1;
+
+                        // Calculate repulsion vector
+                        mouseEffect.x = (dirX / length) * repelStrength;
+                        mouseEffect.y = (dirY / length) * repelStrength;
+                        mouseEffect.z = (dirZ / length) * repelStrength;
+                    }
+                }
+
+                // Store old position before updating
+                const oldPosition = {
+                    x: particle.position.x,
+                    y: particle.position.y,
+                    z: particle.position.z
+                };
+
+                // Update position with smooth interpolation
+                particle.position.x += (targetX - particle.position.x) * animationSpeed + (mouseEffect?.x || 0) * 0.1;
+                particle.position.y += (targetY - particle.position.y) * animationSpeed + (mouseEffect?.y || 0) * 0.1;
+                particle.position.z += (targetZ - particle.position.z) * animationSpeed + (mouseEffect?.z || 0) * 0.1;
+
+                // Update particle trail (only during explosion for performance)
+                if (exploding && !isNaN(particle.position.x)) {
+                    const trail = particleTrails[index];
+                    trail.push({ ...oldPosition });
+
+                    // Limit trail length
+                    if (trail.length > maxTrailLength) {
+                        trail.shift();
+                    }
+                } else {
+                    // Clear trails when not exploding
+                    particleTrails[index] = [];
+                }
+            });
+
+            // Rotate heart with subtle wobble
+            const rotationSpeed = exploding ? 0.001 : 0.002 + Math.sin(time * 0.3) * 0.0005;
+            heartParticles.rotation.y += rotationSpeed;
+            heartParticles.rotation.x = Math.sin(time * 0.2) * 0.03; // Subtle wobble
+
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resize
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+
+            // Dynamic camera positioning based on window dimensions
+            const viewportSize = Math.min(window.innerWidth, window.innerHeight);
+            camera.position.z = 65 + (viewportSize / 15);
+
+            // Adjust EKG width based on window width
+            ekg.width = window.innerWidth / 10;
+
+            // Recreate EKG line with new dimensions
+            scene.remove(ekg.line);
+            createEKG();
+        }
+
+        // Run resize function immediately to set initial sizing correctly
+        onWindowResize();
+
+        // Update initial BPM display
+        bpmDisplay.textContent = heartRateBPM;
+
+        window.addEventListener('resize', onWindowResize, false);
+
+        // Start animation
+        animate();
+    </script>
+</body>
+
+</html>
